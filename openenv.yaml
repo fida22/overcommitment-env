@@ -1,0 +1,17 @@
+spec_version: 1
+name: overcommitment_env
+description: "A student overcommitment manager where an RL agent decides how to handle incoming academic and social requests by managing energy, reputation, and time."
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+tasks:
+  - name: easy
+    description: "5 requests over 3 days. Accept high-value tasks, reject low-value ones."
+    difficulty: easy
+  - name: medium
+    description: "8 requests with hidden effort multipliers. Balance commitments carefully."
+    difficulty: medium
+  - name: hard
+    description: "12 requests with urgent surprises. Survive the week without burnout."
+    difficulty: hard
