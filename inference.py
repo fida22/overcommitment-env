@@ -3,15 +3,13 @@ import requests
 from typing import List, Optional
 from openai import OpenAI
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-MODEL_NAME   = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
-HF_TOKEN     = os.getenv("HF_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-API_KEY = HF_TOKEN or OPENAI_API_KEY
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
+API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 
 client = OpenAI(
     api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1"
+    base_url=API_BASE_URL
 )
 
 SYSTEM_PROMPT = """You are a student managing your weekly commitments.
