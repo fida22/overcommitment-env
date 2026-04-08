@@ -1,255 +1,96 @@
----
-title: Overcommitment Env Environment Server
-emoji: 🎨
-colorFrom: yellow
-colorTo: green
-sdk: docker
-pinned: false
-app_port: 8000
-base_path: /web
-tags:
-  - openenv
----
+# Overcommitment Environment
 
-# Overcommitment Env Environment
+A reinforcement learning environment where an AI agent manages a student's weekly commitments — deciding what to accept, reject, negotiate or drop.
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+## Concept
 
-## Quick Start
+Students constantly overcommit. This environment simulates that reality: an agent receives incoming requests (assignments, social events, group projects) and must make smart decisions to survive the week without burning out.
 
-The simplest way to use the Overcommitment Env environment is through the `OvercommitmentEnv` class:
+## Action Space
 
-```python
-from overcommitment_env import OvercommitmentAction, OvercommitmentEnv
+| Action | Effect |
+|--------|--------|
+| say_yes | Accept task. Energy drops, commitment count rises |
+| say_no | Reject task. Reputation drops slightly |
+| negotiate | Accept at half effort. Less energy cost |
+| drop_existing | Drop a commitment. Big reputation hit, energy recovers |
 
-try:
-    # Create environment from Docker image
-    overcommitment_envenv = OvercommitmentEnv.from_docker_image("overcommitment_env-env:latest")
+## Observation Space
 
-    # Reset
-    result = overcommitment_envenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+| Field | Type | Description |
+|-------|------|-------------|
+| day | int | Current day (1-7) |
+| energy | float | Energy level (0-100) |
+| time_remaining | float | Minutes left today |
+| reputation | float | Reputation score (0-100) |
+| active_commitments | int | Number of accepted tasks |
+| incoming_request | dict | Current request with task, effort, value, deadline |
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+## Hidden Mechanic
 
-    for msg in messages:
-        result = overcommitment_envenv.step(OvercommitmentAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+Some tasks secretly cost 1.5x their estimated effort — just like real life. The agent must learn to manage this uncertainty.
 
-finally:
-    # Always clean up
-    overcommitment_envenv.close()
+## Tasks
+
+| Task | Requests | Win Condition |
+|------|----------|---------------|
+| easy | 5 requests | Complete 3 with good energy |
+| medium | 8 requests (2 with hidden effort) | Complete 5, reputation > 65 |
+| hard | 12 requests + surprise urgent task | Complete 7, reputation > 60, energy > 20 |
+
+## Reward Function
+
+| Event | Reward |
+|-------|--------|
+| Accept high-value task (value ≥ 70) | +10 |
+| Accept low-value task | +3 |
+| Correctly reject low-value task | +8 |
+| Incorrectly reject high-value task | -3 |
+| Negotiate | +5 |
+| Say yes when energy < 20 | -5 |
+| Burnout (energy = 0) | -10 |
+| Drop existing commitment | -5 |
+
+## Scoring
+
+```
+score = 0.40 × (tasks_completed / min_required)
+      + 0.35 × (reputation / 100)
+      + 0.25 × (energy / 100)
 ```
 
-That's it! The `OvercommitmentEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+## Baseline Scores
 
-## Building the Docker Image
+| Task | Score |
+|------|-------|
+| easy | 0.840 |
+| medium | 0.833 |
+| hard | 0.439 |
+| **average** | **0.704** |
 
-Before using the environment, you need to build the Docker image:
+## Setup & Usage
 
 ```bash
-# From project root
-docker build -t overcommitment_env-env:latest -f server/Dockerfile .
+pip install openenv-core fastapi uvicorn openai
+uv run server
 ```
 
-## Deploying to Hugging Face Spaces
-
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+## Run Inference
 
 ```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
-
-# Or specify options
-openenv push --namespace my-org --private
+export OPENAI_API_KEY=your_key
+export API_BASE_URL=http://localhost:8000
+export MODEL_NAME=gpt-4o-mini
+python inference.py
 ```
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
-
-### Prerequisites
-
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
+## Docker
 
 ```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
+docker build -t overcommitment-env .
+docker run -p 8000:8000 overcommitment-env
 ```
 
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
+## Live Demo
 
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-**OvercommitmentAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**OvercommitmentObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Overcommitment Env environment server running, you can connect directly:
-
-```python
-from overcommitment_env import OvercommitmentEnv
-
-# Connect to existing server
-overcommitment_envenv = OvercommitmentEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = overcommitment_envenv.reset()
-result = overcommitment_envenv.step(OvercommitmentAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `overcommitment_envenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from overcommitment_env import OvercommitmentAction, OvercommitmentEnv
-
-# Connect with context manager (auto-connects and closes)
-with OvercommitmentEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(OvercommitmentAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    OvercommitmentEnvironment,  # Pass class, not instance
-    OvercommitmentAction,
-    OvercommitmentObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from overcommitment_env import OvercommitmentAction, OvercommitmentEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with OvercommitmentEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(OvercommitmentAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/overcommitment_env_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
-
-## Project Structure
-
-```
-overcommitment_env/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # OvercommitmentEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── overcommitment_env_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
-```
+[https://fidasaif-overcommitment-env.hf.space](https://fidasaif-overcommitment-env.hf.space)
