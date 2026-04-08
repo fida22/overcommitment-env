@@ -3,10 +3,15 @@ import requests
 from typing import List, Optional
 from openai import OpenAI
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+# LLM proxy — injected by judges
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
-API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
+API_KEY      = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN", "")
 
+# Your environment server — separate from LLM proxy
+ENV_URL = "https://fidasaif-overcommitment-env.hf.space"
+
+# OpenAI client uses judge's LLM proxy
 client = OpenAI(
     api_key=API_KEY,
     base_url=API_BASE_URL
@@ -72,7 +77,8 @@ def run_task(task_name: str) -> float:
     log_start(task=task_name, env="overcommitment_env", model=MODEL_NAME)
 
     try:
-        res = requests.post(f"{API_BASE_URL}/reset", json={"task_name": task_name})
+        # Environment calls use ENV_URL (your HF Space)
+        res = requests.post(f"{ENV_URL}/reset", json={"task_name": task_name})
         data = res.json()
         obs = data["observation"]
         done = data["done"]
@@ -80,9 +86,11 @@ def run_task(task_name: str) -> float:
         step = 0
         while not done:
             step += 1
+            # LLM call uses API_BASE_URL via OpenAI client
             action = get_agent_action(obs)
 
-            res = requests.post(f"{API_BASE_URL}/step", json={"action": {"action": action}})
+            # Environment call uses ENV_URL
+            res = requests.post(f"{ENV_URL}/step", json={"action": {"action": action}})
             data = res.json()
             obs = data["observation"]
             done = data["done"]
