@@ -1,17 +1,18 @@
 import os
 import requests
+from typing import List, Optional
 from openai import OpenAI
 
-# ── Config ────────────────────────────────────────────────────────────────────
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
-HF_TOKEN     = os.environ.get("HF_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+MODEL_NAME   = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+HF_TOKEN     = os.getenv("HF_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = HF_TOKEN or OPENAI_API_KEY
 
 client = OpenAI(
-    api_key=HF_TOKEN,
+    api_key=API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
-
 
 SYSTEM_PROMPT = """You are a student managing your weekly commitments.
 Each step you receive a new request and must respond with exactly one of:
@@ -25,69 +26,92 @@ Rules:
 
 Reply with ONLY the action word, nothing else."""
 
-def get_agent_action(observation: dict) -> str:
-    req = observation.get("incoming_request", {})
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+
+def get_agent_action(obs: dict) -> str:
+    req = obs.get("incoming_request", {})
     obs_text = f"""
-Day: {observation.get('day')}
-Energy: {observation.get('energy')}
-Reputation: {observation.get('reputation')}
-Time remaining: {observation.get('time_remaining')}
-Active commitments: {observation.get('active_commitments')}
+Day: {obs.get('day')}
+Energy: {obs.get('energy')}
+Reputation: {obs.get('reputation')}
+Time remaining: {obs.get('time_remaining')}
+Active commitments: {obs.get('active_commitments')}
 Incoming request: {req.get('task', 'none')} | effort: {req.get('effort', '?')} hrs | value: {req.get('value', '?')} | due in: {req.get('deadline_in_days', '?')} days
 """
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": obs_text},
-        ],
-        max_tokens=10,
-        temperature=0.0,
-    )
-    action = response.choices[0].message.content.strip().lower()
-    valid = {"say_yes", "say_no", "negotiate", "drop_existing"}
-    return action if action in valid else "say_no"
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": obs_text},
+            ],
+            max_tokens=10,
+            temperature=0.0,
+        )
+        action = response.choices[0].message.content.strip().lower()
+        valid = {"say_yes", "say_no", "negotiate", "drop_existing"}
+        return action if action in valid else "say_no"
+    except Exception as e:
+        print(f"[DEBUG] Model error: {e}", flush=True)
+        return "say_no"
 
 def run_task(task_name: str) -> float:
-    print(f"\n{'='*50}")
-    print(f"[START] Task: {task_name}")
-    print(f"{'='*50}")
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
 
-    # Reset
-    res = requests.post(f"{API_BASE_URL}/reset", json={"task_name": task_name})
-    obs = res.json()["observation"]
-    done = res.json()["done"]
-    step = 0
+    log_start(task=task_name, env="overcommitment_env", model=MODEL_NAME)
 
-    while not done:
-        step += 1
-        action = get_agent_action(obs)
-        print(f"[STEP {step}] Request: '{obs.get('incoming_request', {}).get('task', '')}' → Action: {action}")
-
-        res = requests.post(f"{API_BASE_URL}/step", json={"action": {"action": action}})
+    try:
+        res = requests.post(f"{API_BASE_URL}/reset", json={"task_name": task_name})
         data = res.json()
         obs = data["observation"]
         done = data["done"]
-        reward = data["reward"]
 
-        print(f"         Energy: {obs['energy']} | Rep: {obs['reputation']} | Reward: {reward}")
+        step = 0
+        while not done:
+            step += 1
+            action = get_agent_action(obs)
 
-    final_score = reward
-    print(f"\n[END] Task: {task_name} | Final Score: {final_score}")
-    return final_score
+            res = requests.post(f"{API_BASE_URL}/step", json={"action": {"action": action}})
+            data = res.json()
+            obs = data["observation"]
+            done = data["done"]
+            reward = float(data["reward"])
+            error = None
+
+            rewards.append(reward)
+            steps_taken = step
+            log_step(step=step, action=action, reward=reward, done=done, error=error)
+
+            if done:
+                score = reward
+                break
+
+        success = score >= 0.5
+
+    except Exception as e:
+        print(f"[DEBUG] Exception: {e}", flush=True)
+
+    finally:
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+    return score
 
 def main():
-    scores = {}
     for task in ["easy", "medium", "hard"]:
-        scores[task] = run_task(task)
-
-    print(f"\n{'='*50}")
-    print("FINAL SCORES")
-    print(f"{'='*50}")
-    for task, score in scores.items():
-        print(f"  {task:10s}: {score:.3f}")
-    avg = sum(scores.values()) / len(scores)
-    print(f"  {'average':10s}: {avg:.3f}")
+        run_task(task)
 
 if __name__ == "__main__":
     main()
