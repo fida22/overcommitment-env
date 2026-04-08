@@ -4,14 +4,14 @@ from openai import OpenAI
 
 # ── Config ────────────────────────────────────────────────────────────────────
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-HF_TOKEN     = os.environ.get("HF_TOKEN", "")
-OPENAI_KEY   = os.environ.get("OPENAI_API_KEY", "")
+MODEL_NAME   = os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
+HF_TOKEN     = os.environ.get("HF_TOKEN")
 
 client = OpenAI(
-    api_key=OPENAI_KEY,
+    api_key=HF_TOKEN,
     base_url="https://api.groq.com/openai/v1"
 )
+
 
 SYSTEM_PROMPT = """You are a student managing your weekly commitments.
 Each step you receive a new request and must respond with exactly one of:
