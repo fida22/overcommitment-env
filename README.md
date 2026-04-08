@@ -1,3 +1,15 @@
+---
+title: Overcommitment Env
+emoji: 📚
+colorFrom: yellow
+colorTo: green
+sdk: docker
+app_port: 8000
+tags:
+  - openenv
+pinned: false
+---
+
 # Overcommitment Environment
 
 A reinforcement learning environment where an AI agent manages a student's weekly commitments — deciding what to accept, reject, negotiate or drop.
